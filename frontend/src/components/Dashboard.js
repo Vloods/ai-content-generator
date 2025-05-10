@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import {
   Container,
   Typography,
@@ -204,11 +206,135 @@ const Dashboard = () => {
                   borderRadius: 2,
                   border: '1px solid',
                   borderColor: 'divider',
+                  '& h1, & h2, & h3, & h4, & h5, & h6': {
+                    color: 'primary.main',
+                    mt: 2,
+                    mb: 1,
+                  },
+                  '& p': {
+                    mb: 2,
+                  },
+                  '& ul, & ol': {
+                    pl: 3,
+                    mb: 2,
+                  },
+                  '& li': {
+                    mb: 1,
+                  },
+                  '& blockquote': {
+                    borderLeft: '4px solid',
+                    borderColor: 'primary.main',
+                    pl: 2,
+                    py: 1,
+                    my: 2,
+                    bgcolor: 'grey.100',
+                  },
+                  '& code': {
+                    bgcolor: 'grey.200',
+                    px: 1,
+                    py: 0.5,
+                    borderRadius: 1,
+                    fontFamily: 'monospace',
+                  },
+                  '& pre': {
+                    bgcolor: 'grey.200',
+                    p: 2,
+                    borderRadius: 1,
+                    overflowX: 'auto',
+                    mb: 2,
+                  },
+                  '& a': {
+                    color: 'primary.main',
+                    textDecoration: 'none',
+                    '&:hover': {
+                      textDecoration: 'underline',
+                    },
+                  },
+                  '& strong': {
+                    fontWeight: 'bold',
+                  },
+                  '& em': {
+                    fontStyle: 'italic',
+                  },
                 }}
               >
-                <Typography sx={{ whiteSpace: 'pre-wrap' }}>
+                <ReactMarkdown 
+                  remarkPlugins={[remarkGfm]}
+                  components={{
+                    p: ({ children }) => <Typography paragraph>{children}</Typography>,
+                    h1: ({ children }) => <Typography variant="h4">{children}</Typography>,
+                    h2: ({ children }) => <Typography variant="h5">{children}</Typography>,
+                    h3: ({ children }) => <Typography variant="h6">{children}</Typography>,
+                    h4: ({ children }) => <Typography variant="subtitle1">{children}</Typography>,
+                    h5: ({ children }) => <Typography variant="subtitle2">{children}</Typography>,
+                    h6: ({ children }) => <Typography variant="body1" sx={{ fontWeight: 'bold' }}>{children}</Typography>,
+                    ul: ({ children }) => <Box component="ul" sx={{ pl: 3 }}>{children}</Box>,
+                    ol: ({ children }) => <Box component="ol" sx={{ pl: 3 }}>{children}</Box>,
+                    li: ({ children }) => <Box component="li" sx={{ mb: 1 }}>{children}</Box>,
+                    blockquote: ({ children }) => (
+                      <Box 
+                        component="blockquote" 
+                        sx={{ 
+                          borderLeft: '4px solid',
+                          borderColor: 'primary.main',
+                          pl: 2,
+                          py: 1,
+                          my: 2,
+                          bgcolor: 'grey.100',
+                        }}
+                      >
+                        {children}
+                      </Box>
+                    ),
+                    code: ({ children }) => (
+                      <Box 
+                        component="code" 
+                        sx={{ 
+                          bgcolor: 'grey.200',
+                          px: 1,
+                          py: 0.5,
+                          borderRadius: 1,
+                          fontFamily: 'monospace',
+                        }}
+                      >
+                        {children}
+                      </Box>
+                    ),
+                    pre: ({ children }) => (
+                      <Box 
+                        component="pre" 
+                        sx={{ 
+                          bgcolor: 'grey.200',
+                          p: 2,
+                          borderRadius: 1,
+                          overflowX: 'auto',
+                          mb: 2,
+                        }}
+                      >
+                        {children}
+                      </Box>
+                    ),
+                    a: ({ href, children }) => (
+                      <Box 
+                        component="a" 
+                        href={href}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        sx={{ 
+                          color: 'primary.main',
+                          textDecoration: 'none',
+                          '&:hover': {
+                            textDecoration: 'underline',
+                          },
+                        }}
+                      >
+                        {children}
+                      </Box>
+                    ),
+                  }}
+                >
                   {result}
-                </Typography>
+                </ReactMarkdown>
               </Paper>
             </Box>
           )}
