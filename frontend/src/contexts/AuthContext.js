@@ -44,10 +44,12 @@ export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [token, setToken] = useState(localStorage.getItem('token'));
 
   useEffect(() => {
-    const token = localStorage.getItem('token');
-    if (token) {
+    const storedToken = localStorage.getItem('token');
+    if (storedToken) {
+      setToken(storedToken);
       setIsAuthenticated(true);
     }
     setLoading(false);
@@ -67,6 +69,7 @@ export const AuthProvider = ({ children }) => {
 
       const { access_token } = response.data;
       localStorage.setItem('token', access_token);
+      setToken(access_token);
       setIsAuthenticated(true);
       return true;
     } catch (error) {
@@ -83,6 +86,7 @@ export const AuthProvider = ({ children }) => {
       });
       const { access_token } = response.data;
       localStorage.setItem('token', access_token);
+      setToken(access_token);
       setIsAuthenticated(true);
       return true;
     } catch (error) {
@@ -93,6 +97,7 @@ export const AuthProvider = ({ children }) => {
 
   const logout = () => {
     localStorage.removeItem('token');
+    setToken(null);
     setIsAuthenticated(false);
     setUser(null);
   };
@@ -105,6 +110,7 @@ export const AuthProvider = ({ children }) => {
     register,
     logout,
     api,
+    token,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

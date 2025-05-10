@@ -6,6 +6,7 @@ import Login from './components/Login';
 import Register from './components/Register';
 import Dashboard from './components/Dashboard';
 import Analytics from './components/Analytics';
+import History from './components/History';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import Navigation from './components/Navigation';
 
@@ -49,6 +50,14 @@ const App = () => {
               element={
                 <PrivateRoute>
                   <Analytics />
+                </PrivateRoute>
+              }
+            />
+            <Route
+              path="/history"
+              element={
+                <PrivateRoute>
+                  <History />
                 </PrivateRoute>
               }
             />

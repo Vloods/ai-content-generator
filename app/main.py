@@ -9,7 +9,8 @@ from .models import User, Tariff, Base, Generation, BalanceHistory
 from .schemas import (
     UserCreate, UserLogin, Token, GenerateRequest, 
     GenerateResponse, BalanceUpdate, AnalyticsResponse,
-    GenerationStats, BalanceStats, UserStats
+    GenerationStats, BalanceStats, UserStats, GenerationHistory,
+    HistoryResponse
 )
 from . import auth
 from . import ml_utils
@@ -145,56 +146,74 @@ def generate_content(request: GenerateRequest, db: Session = Depends(get_db), cu
     
     # Get fresh user instance from the current session
     user = db.query(User).filter(User.email == current_user.email).first()
+    print(f"\n=== Starting generation for user: {user.email} (ID: {user.id}) ===")
     
     # Проверка корректности тарифа
     cost = Tariff.get_cost(request.tariff)
     if cost == 0:
         raise HTTPException(status_code=400, detail="Invalid tariff type")
+    print(f"Using tariff: {request.tariff} with cost: {cost}")
     
     # Проверка баланса
     if user.balance < cost:
         raise HTTPException(status_code=402, detail="Insufficient funds")
+    print(f"Current balance: {user.balance}")
     
     # Генерация текста
     generated_text = ml_utils.generate_text(request.prompt, request.tariff)
+    print(f"Generated text length: {len(generated_text)}")
     
     # Убедимся, что текст правильно закодирован
     if isinstance(generated_text, bytes):
         generated_text = generated_text.decode('utf-8')
     
-    # Списание средств
-    user.balance -= cost
-    db.commit()
-    
-    # Сохраняем историю генерации
-    generation = Generation(
-        user_id=user.id,
-        prompt=request.prompt,
-        result=generated_text,
-        tariff=request.tariff,
-        cost=cost,
-        tokens_used=len(generated_text.split()),  # Примерный подсчет токенов
-        processing_time=(datetime.now() - start_time).total_seconds()
-    )
-    db.add(generation)
-    
-    # Сохраняем историю баланса
-    balance_history = BalanceHistory(
-        user_id=user.id,
-        amount=-cost,
-        operation_type='spend',
-        description=f'Content generation using {request.tariff} model'
-    )
-    db.add(balance_history)
-    
-    db.commit()
-    db.refresh(user)
-    
-    return GenerateResponse(
-        text=generated_text,
-        cost=cost,
-        remaining_balance=user.balance
-    )
+    try:
+        # Start a transaction
+        # Списание средств
+        user.balance -= cost
+        
+        # Сохраняем историю генерации
+        generation = Generation(
+            user_id=user.id,
+            prompt=request.prompt,
+            result=generated_text,
+            tariff=request.tariff,
+            cost=cost,
+            tokens_used=len(generated_text.split()),  # Примерный подсчет токенов
+            processing_time=(datetime.now() - start_time).total_seconds()
+        )
+        db.add(generation)
+        
+        # Сохраняем историю баланса
+        balance_history = BalanceHistory(
+            user_id=user.id,
+            amount=-cost,
+            operation_type='spend',
+            description=f'Content generation using {request.tariff} model'
+        )
+        db.add(balance_history)
+        
+        # Commit all changes
+        db.commit()
+        db.refresh(generation)  # Refresh to get the ID
+        db.refresh(user)
+        
+        print(f"Updated balance: {user.balance}")
+        print(f"Created generation record with ID: {generation.id}")
+        print("=== Generation completed successfully ===\n")
+        
+        return GenerateResponse(
+            text=generated_text,
+            cost=cost,
+            remaining_balance=user.balance
+        )
+    except Exception as e:
+        db.rollback()
+        print(f"Error during generation: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error during generation: {str(e)}"
+        )
 
 @app.get("/analytics", response_model=AnalyticsResponse)
 def get_user_analytics(db: Session = Depends(get_db), current_user: User = Depends(auth.get_current_user)):
@@ -281,3 +300,105 @@ def get_user_analytics(db: Session = Depends(get_db), current_user: User = Depen
         recent_generations=recent_generations_data,
         recent_balance_changes=recent_balance_data
     )
+
+@app.get("/history", response_model=HistoryResponse)
+def get_generation_history(
+    page: int = 1,
+    page_size: int = 10,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(auth.get_current_user)
+):
+    """Получение истории генераций пользователя с пагинацией"""
+    print(f"\n=== History request for user: {current_user.email} ===")
+    print(f"Page: {page}, Page size: {page_size}")
+    
+    # Get fresh user instance from the current session
+    user = db.query(User).filter(User.email == current_user.email).first()
+    if not user:
+        print(f"User not found: {current_user.email}")
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    print(f"Found user with ID: {user.id}")
+    
+    # Calculate total count
+    total_count = db.query(Generation).filter(Generation.user_id == user.id).count()
+    print(f"Total generations found: {total_count}")
+    
+    # Get paginated generations
+    generations = (
+        db.query(Generation)
+        .filter(Generation.user_id == user.id)
+        .order_by(Generation.created_at.desc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+        .all()
+    )
+    print(f"Retrieved {len(generations)} generations for page {page}")
+    
+    # Print details of each generation
+    for gen in generations:
+        print(f"\nGeneration ID: {gen.id}")
+        print(f"Created at: {gen.created_at}")
+        print(f"Tariff: {gen.tariff}")
+        print(f"Cost: {gen.cost}")
+        print(f"Prompt length: {len(gen.prompt)}")
+        print(f"Result length: {len(gen.result)}")
+    
+    response = HistoryResponse(
+        generations=[
+            GenerationHistory(
+                id=gen.id,
+                prompt=gen.prompt,
+                result=gen.result,
+                tariff=gen.tariff,
+                cost=gen.cost,
+                created_at=gen.created_at,
+                processing_time=gen.processing_time
+            )
+            for gen in generations
+        ],
+        total_count=total_count,
+        page=page,
+        page_size=page_size
+    )
+    print(f"Returning response with {len(response.generations)} generations")
+    print("=== End of history request ===\n")
+    return response
+
+@app.get("/debug/generations")
+def debug_generations(db: Session = Depends(get_db), current_user: User = Depends(auth.get_current_user)):
+    """Debug endpoint to check all generations in the database"""
+    user = db.query(User).filter(User.email == current_user.email).first()
+    print(f"\n=== Debug: Checking generations for user {user.email} ===")
+    
+    # Get all generations
+    generations = db.query(Generation).filter(Generation.user_id == user.id).all()
+    print(f"Found {len(generations)} generations")
+    
+    # Print details of each generation
+    for gen in generations:
+        print(f"\nGeneration ID: {gen.id}")
+        print(f"Created at: {gen.created_at}")
+        print(f"Tariff: {gen.tariff}")
+        print(f"Cost: {gen.cost}")
+        print(f"Prompt length: {len(gen.prompt)}")
+        print(f"Result length: {len(gen.result)}")
+        print(f"Processing time: {gen.processing_time}s")
+    
+    print("\n=== Debug: End of generations check ===\n")
+    
+    return {
+        "total_generations": len(generations),
+        "generations": [
+            {
+                "id": gen.id,
+                "created_at": gen.created_at,
+                "tariff": gen.tariff,
+                "cost": gen.cost,
+                "prompt_length": len(gen.prompt),
+                "result_length": len(gen.result),
+                "processing_time": gen.processing_time
+            }
+            for gen in generations
+        ]
+    }

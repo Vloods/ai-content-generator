@@ -59,3 +59,20 @@ class AnalyticsResponse(BaseModel):
     user_stats: UserStats
     recent_generations: List[dict]
     recent_balance_changes: List[dict]
+
+class GenerationHistory(BaseModel):
+    model_config = ConfigDict(json_encoders={str: str})
+    id: int
+    prompt: str
+    result: str
+    tariff: str
+    cost: float
+    created_at: datetime
+    processing_time: float
+
+class HistoryResponse(BaseModel):
+    model_config = ConfigDict(json_encoders={str: str})
+    generations: List[GenerationHistory]
+    total_count: int
+    page: int
+    page_size: int
