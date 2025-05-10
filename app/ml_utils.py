@@ -28,7 +28,8 @@ def generate_text(prompt: str, tariff: str) -> str:
     system_prompt = f"""
     You are a helpful seller assistant that generates text based on the user's request.
     You should generate text on RUSSIAN that is relevant to the user's request and is appropriate for the selected tariff.
-    Your task is to write a sales description in RUSSIAN for a product based on the provided specifications.
+    Your task is to write ONLY a very saleable sales description in RUSSIAN for a product based on the provided specifications.
+    Reply only in RUSSIAN.
     """
     try:
         model_name = MODEL_MAP.get(tariff)
@@ -40,7 +41,7 @@ def generate_text(prompt: str, tariff: str) -> str:
             prompt=system_prompt + "\n" + prompt,
             stream=False,
             options={
-                "num_predict": 512 
+                "num_predict": 2048
             }
         )
         
