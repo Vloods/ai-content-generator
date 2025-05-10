@@ -17,8 +17,8 @@ class Tariff:
     @staticmethod
     def get_cost(tariff_type: str) -> float:
         costs = {
-            Tariff.STANDART: 10.0,
-            Tariff.PRO: 30.0,
-            Tariff.PREMIUM: 50.0
+            Tariff.STANDART: 1.0,
+            Tariff.PRO: 4.0,
+            Tariff.PREMIUM: 12.0
         }
         return costs.get(tariff_type, 0)
