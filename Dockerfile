@@ -4,6 +4,11 @@ FROM python:3.9-slim
 # Устанавливаем рабочую директорию
 WORKDIR /app
 
+# Устанавливаем необходимые системные зависимости
+RUN apt-get update && apt-get install -y \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
 # Копируем файл зависимостей
 COPY requirements.txt .
 

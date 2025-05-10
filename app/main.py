@@ -1,5 +1,8 @@
+# -*- coding: utf-8 -*-
 from fastapi import FastAPI, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 from .database import SessionLocal, engine
 from .models import User, Tariff, Base
@@ -10,7 +13,29 @@ from .schemas import (
 from . import auth
 from . import ml_utils
 
-app = FastAPI(title="AI Content Generator")
+app = FastAPI(
+    title="AI Content Generator",
+    default_response_class=JSONResponse,
+    openapi_url="/openapi.json",
+    docs_url="/docs",
+    redoc_url="/redoc",
+)
+
+# Добавляем middleware для обработки кодировки
+@app.middleware("http")
+async def add_encoding_header(request, call_next):
+    response = await call_next(request)
+    response.headers["Content-Type"] = "application/json; charset=utf-8"
+    return response
+
+# Добавляем CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # Создание таблиц в БД
 Base.metadata.create_all(bind=engine)
@@ -99,13 +124,17 @@ def generate_content(request: GenerateRequest, db: Session = Depends(get_db), cu
     # Генерация текста
     generated_text = ml_utils.generate_text(request.prompt, request.tariff)
     
+    # Убедимся, что текст правильно закодирован
+    if isinstance(generated_text, bytes):
+        generated_text = generated_text.decode('utf-8')
+    
     # Списание средств
     user.balance -= cost
     db.commit()
     db.refresh(user)
     
-    return {
-        "text": generated_text,
-        "cost": cost,
-        "remaining_balance": user.balance
-    }
+    return GenerateResponse(
+        text=generated_text,
+        cost=cost,
+        remaining_balance=user.balance
+    )

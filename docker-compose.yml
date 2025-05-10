@@ -7,7 +7,35 @@ services:
       - "8000:8000"
     environment:
       - DATABASE_URL=sqlite:///./test.db
+      - OLLAMA_HOST=http://host.docker.internal:11434
     volumes:
       - .:/app
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - app-network
     command: >
       sh -c "uvicorn app.main:app --host 0.0.0.0 --port 8000"
+
+  ollama:
+    image: ollama/ollama:latest
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    networks:
+      - app-network
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+volumes:
+  ollama_data:
+
+networks:
+  app-network:
+    driver: bridge

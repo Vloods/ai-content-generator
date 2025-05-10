@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 import jwt
 from datetime import datetime, timedelta
 from passlib.context import CryptContext
