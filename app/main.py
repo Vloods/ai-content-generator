@@ -4,14 +4,17 @@ from fastapi.security import OAuth2PasswordRequestForm
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
-from .database import SessionLocal, engine
-from .models import User, Tariff, Base
+from .database import SessionLocal, engine, recreate_tables
+from .models import User, Tariff, Base, Generation, BalanceHistory
 from .schemas import (
     UserCreate, UserLogin, Token, GenerateRequest, 
-    GenerateResponse, BalanceUpdate
+    GenerateResponse, BalanceUpdate, AnalyticsResponse,
+    GenerationStats, BalanceStats, UserStats
 )
 from . import auth
 from . import ml_utils
+from datetime import datetime, timedelta
+from sqlalchemy import func
 
 app = FastAPI(
     title="AI Content Generator",
@@ -37,8 +40,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Создание таблиц в БД
-Base.metadata.create_all(bind=engine)
+# Recreate all tables on startup
+recreate_tables()
 
 # Зависимость для получения сессии БД
 def get_db():
@@ -98,6 +101,17 @@ def update_balance(amount: float, db: Session = Depends(get_db), current_user: U
             
         user.balance += amount
         db.commit()
+        
+        # Сохраняем историю баланса
+        balance_history = BalanceHistory(
+            user_id=user.id,
+            amount=amount,
+            operation_type='add',
+            description='Balance top-up'
+        )
+        db.add(balance_history)
+        db.commit()
+        
         db.refresh(user)
         
         return {
@@ -127,6 +141,8 @@ def check_balance(db: Session = Depends(get_db), current_user: User = Depends(au
 @app.post("/generate", response_model=GenerateResponse)
 def generate_content(request: GenerateRequest, db: Session = Depends(get_db), current_user: User = Depends(auth.get_current_user)):
     """Генерация текстового контента с оплатой за токены"""
+    start_time = datetime.now()
+    
     # Get fresh user instance from the current session
     user = db.query(User).filter(User.email == current_user.email).first()
     
@@ -149,10 +165,119 @@ def generate_content(request: GenerateRequest, db: Session = Depends(get_db), cu
     # Списание средств
     user.balance -= cost
     db.commit()
+    
+    # Сохраняем историю генерации
+    generation = Generation(
+        user_id=user.id,
+        prompt=request.prompt,
+        result=generated_text,
+        tariff=request.tariff,
+        cost=cost,
+        tokens_used=len(generated_text.split()),  # Примерный подсчет токенов
+        processing_time=(datetime.now() - start_time).total_seconds()
+    )
+    db.add(generation)
+    
+    # Сохраняем историю баланса
+    balance_history = BalanceHistory(
+        user_id=user.id,
+        amount=-cost,
+        operation_type='spend',
+        description=f'Content generation using {request.tariff} model'
+    )
+    db.add(balance_history)
+    
+    db.commit()
     db.refresh(user)
     
     return GenerateResponse(
         text=generated_text,
         cost=cost,
         remaining_balance=user.balance
+    )
+
+@app.get("/analytics", response_model=AnalyticsResponse)
+def get_user_analytics(db: Session = Depends(get_db), current_user: User = Depends(auth.get_current_user)):
+    """Получение аналитики пользователя"""
+    user = db.query(User).filter(User.email == current_user.email).first()
+    
+    # Статистика генераций
+    generations = db.query(Generation).filter(Generation.user_id == user.id).all()
+    generations_by_tariff = {}
+    total_tokens = 0
+    total_cost = 0
+    total_processing_time = 0
+    
+    for gen in generations:
+        generations_by_tariff[gen.tariff] = generations_by_tariff.get(gen.tariff, 0) + 1
+        total_tokens += gen.tokens_used
+        total_cost += gen.cost
+        total_processing_time += gen.processing_time
+    
+    generation_stats = GenerationStats(
+        total_generations=len(generations),
+        total_tokens=total_tokens,
+        total_cost=total_cost,
+        avg_processing_time=total_processing_time / len(generations) if generations else 0,
+        generations_by_tariff=generations_by_tariff
+    )
+    
+    # Статистика баланса
+    balance_history = db.query(BalanceHistory).filter(BalanceHistory.user_id == user.id).all()
+    total_spent = sum(h.amount for h in balance_history if h.operation_type == 'spend')
+    total_added = sum(h.amount for h in balance_history if h.operation_type == 'add')
+    
+    balance_stats = BalanceStats(
+        current_balance=user.balance,
+        total_spent=abs(total_spent),
+        total_added=total_added,
+        balance_history=[{
+            'amount': h.amount,
+            'type': h.operation_type,
+            'description': h.description,
+            'date': h.created_at
+        } for h in balance_history]
+    )
+    
+    # Общая статистика пользователя
+    user_stats = UserStats(
+        generations=generation_stats,
+        balance=balance_stats,
+        last_login=user.last_login or user.created_at,
+        account_age=(datetime.now() - user.created_at).days
+    )
+    
+    # Последние генерации
+    recent_generations = db.query(Generation)\
+        .filter(Generation.user_id == user.id)\
+        .order_by(Generation.created_at.desc())\
+        .limit(5)\
+        .all()
+    
+    recent_generations_data = [{
+        'prompt': g.prompt,
+        'result': g.result,
+        'tariff': g.tariff,
+        'cost': g.cost,
+        'date': g.created_at
+    } for g in recent_generations]
+    
+    # Последние изменения баланса
+    recent_balance_changes = db.query(BalanceHistory)\
+        .filter(BalanceHistory.user_id == user.id)\
+        .order_by(BalanceHistory.created_at.desc())\
+        .limit(5)\
+        .all()
+    
+    recent_balance_data = [{
+        'amount': h.amount,
+        'type': h.operation_type,
+        'description': h.description,
+        'date': h.created_at
+    } for h in recent_balance_changes]
+    
+    return AnalyticsResponse(
+        user_stats=user_stats,
+        recent_generations=recent_generations_data,
+        recent_balance_changes=recent_balance_data
     )
