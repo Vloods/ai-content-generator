@@ -67,33 +67,51 @@ def register(user: UserCreate, db: Session = Depends(get_db)):
 @app.post("/token", response_model=Token)
 async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
     """Получение токена доступа"""
-    user = auth.authenticate_user(db, form_data.username, form_data.password)
-    if not user:
+    try:
+        # Use email as username
+        user = auth.authenticate_user(db, form_data.username, form_data.password)
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Incorrect email or password",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        access_token = auth.create_access_token(data={"sub": user.email})
+        return {"access_token": access_token, "token_type": "bearer"}
+    except Exception as e:
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Incorrect email or password",
-            headers={"WWW-Authenticate": "Bearer"},
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e)
         )
-    access_token = auth.create_access_token(data={"sub": user.email})
-    return {"access_token": access_token, "token_type": "bearer"}
 
 @app.post("/balance", response_model=BalanceUpdate)
 def update_balance(amount: float, db: Session = Depends(get_db), current_user: User = Depends(auth.get_current_user)):
     """Пополнение баланса текущего пользователя"""
-    if amount <= 0:
-        raise HTTPException(status_code=400, detail="Amount must be positive")
-    
-    # Get fresh user instance from the current session
-    user = db.query(User).filter(User.email == current_user.email).first()
-    user.balance += amount
-    db.commit()
-    db.refresh(user)
-    
-    return {
-        "amount": amount, 
-        "new_balance": user.balance,
-        "message": "Balance successfully updated"
-    }
+    try:
+        if amount <= 0:
+            raise HTTPException(status_code=400, detail="Amount must be positive")
+        
+        # Get fresh user instance from the current session
+        user = db.query(User).filter(User.email == current_user.email).first()
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+            
+        user.balance += amount
+        db.commit()
+        db.refresh(user)
+        
+        return {
+            "amount": amount, 
+            "new_balance": user.balance,
+            "message": "Balance successfully updated"
+        }
+    except HTTPException as he:
+        raise he
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error updating balance: {str(e)}"
+        )
 
 @app.get("/balance", response_model=BalanceUpdate)
 def check_balance(db: Session = Depends(get_db), current_user: User = Depends(auth.get_current_user)):
