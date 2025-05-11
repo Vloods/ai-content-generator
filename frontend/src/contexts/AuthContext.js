@@ -10,6 +10,7 @@ const api = axios.create({
   headers: {
     'Content-Type': 'application/json',
   },
+  withCredentials: true
 });
 
 // Add request interceptor to add token to all requests
@@ -46,16 +47,51 @@ export const AuthProvider = ({ children }) => {
   const [loading, setLoading] = useState(true);
   const [token, setToken] = useState(localStorage.getItem('token'));
 
+  const checkToken = async (token) => {
+    console.log('Checking token validity...');
+    try {
+      const response = await api.get('/users/me', {
+        headers: {
+          Authorization: `Bearer ${token}`
+        }
+      });
+      console.log('User data received:', response.data);
+      setUser(response.data);
+      setIsAuthenticated(true);
+      return true;
+    } catch (error) {
+      console.error('Token validation failed:', error);
+      localStorage.removeItem('token');
+      setToken(null);
+      setIsAuthenticated(false);
+      setUser(null);
+      return false;
+    }
+  };
+
   useEffect(() => {
     const storedToken = localStorage.getItem('token');
+    console.log('Initial token check:', storedToken ? 'Token exists' : 'No token');
+    
     if (storedToken) {
       setToken(storedToken);
-      setIsAuthenticated(true);
+      checkToken(storedToken)
+        .then(isValid => {
+          console.log('Token validation result:', isValid ? 'Valid' : 'Invalid');
+          setLoading(false);
+        })
+        .catch(error => {
+          console.error('Token validation error:', error);
+          setLoading(false);
+        });
+    } else {
+      console.log('No token found, setting loading to false');
+      setLoading(false);
     }
-    setLoading(false);
   }, []);
 
   const login = async (email, password) => {
+    console.log('Attempting login...');
     try {
       const formData = new URLSearchParams();
       formData.append('username', email);
@@ -68,8 +104,18 @@ export const AuthProvider = ({ children }) => {
       });
 
       const { access_token } = response.data;
+      console.log('Login successful, token received');
       localStorage.setItem('token', access_token);
       setToken(access_token);
+      
+      // Get user info after successful login
+      const userResponse = await api.get('/users/me', {
+        headers: {
+          Authorization: `Bearer ${access_token}`
+        }
+      });
+      console.log('User data received after login:', userResponse.data);
+      setUser(userResponse.data);
       setIsAuthenticated(true);
       return true;
     } catch (error) {
@@ -87,6 +133,14 @@ export const AuthProvider = ({ children }) => {
       const { access_token } = response.data;
       localStorage.setItem('token', access_token);
       setToken(access_token);
+      
+      // Get user info after successful registration
+      const userResponse = await api.get('/users/me', {
+        headers: {
+          Authorization: `Bearer ${access_token}`
+        }
+      });
+      setUser(userResponse.data);
       setIsAuthenticated(true);
       return true;
     } catch (error) {

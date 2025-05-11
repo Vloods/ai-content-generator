@@ -36,10 +36,11 @@ async def add_encoding_header(request, call_next):
 # Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["http://localhost:3000"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["*"]
 )
 
 # Recreate all tables on startup
@@ -346,36 +347,16 @@ def get_generation_history(
 
 @app.get("/debug/generations")
 def debug_generations(db: Session = Depends(get_db), current_user: User = Depends(auth.get_current_user)):
-    """Debug endpoint to check all generations in the database"""
-    user = db.query(User).filter(User.email == current_user.email).first()
-    print(f"\n=== Debug: Checking generations for user {user.email} ===")
-    
-    generations = db.query(Generation).filter(Generation.user_id == user.id).all()
-    print(f"Found {len(generations)} generations")
-    
-    for gen in generations:
-        print(f"\nGeneration ID: {gen.id}")
-        print(f"Created at: {gen.created_at}")
-        print(f"Tariff: {gen.tariff}")
-        print(f"Cost: {gen.cost}")
-        print(f"Prompt length: {len(gen.prompt)}")
-        print(f"Result length: {len(gen.result)}")
-        print(f"Processing time: {gen.processing_time}s")
-    
-    print("\n=== Debug: End of generations check ===\n")
-    
+    """Debug endpoint to get all generations"""
+    generations = db.query(Generation).filter(Generation.user_id == current_user.id).all()
+    return [{"id": g.id, "prompt": g.prompt, "result": g.result, "created_at": g.created_at} for g in generations]
+
+@app.get("/users/me")
+def get_current_user_info(current_user: User = Depends(auth.get_current_user)):
+    """Get current user information"""
     return {
-        "total_generations": len(generations),
-        "generations": [
-            {
-                "id": gen.id,
-                "created_at": gen.created_at,
-                "tariff": gen.tariff,
-                "cost": gen.cost,
-                "prompt_length": len(gen.prompt),
-                "result_length": len(gen.result),
-                "processing_time": gen.processing_time
-            }
-            for gen in generations
-        ]
+        "email": current_user.email,
+        "balance": current_user.balance,
+        "created_at": current_user.created_at,
+        "last_login": current_user.last_login
     }
