@@ -2,6 +2,12 @@
 
 A full-stack web application that generates AI-powered content using different language models. The application features user authentication, credit-based content generation, and a modern React frontend.
 
+![Dashboard](./figs/dashboard.png)
+
+![Analytics](./figs/analytics.png)
+
+![History](./figs/history.png)
+
 ## Features
 
 - 🔐 User authentication (register/login)
