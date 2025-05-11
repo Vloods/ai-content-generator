@@ -25,14 +25,14 @@ app = FastAPI(
     redoc_url="/redoc",
 )
 
-# Добавляем middleware для обработки кодировки
+# Add middleware for encoding handling
 @app.middleware("http")
 async def add_encoding_header(request, call_next):
     response = await call_next(request)
     response.headers["Content-Type"] = "application/json; charset=utf-8"
     return response
 
-# Добавляем CORS middleware
+# Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -44,7 +44,7 @@ app.add_middleware(
 # Recreate all tables on startup
 recreate_tables()
 
-# Зависимость для получения сессии БД
+# Database session dependency
 def get_db():
     db = SessionLocal()
     try:
@@ -54,7 +54,7 @@ def get_db():
 
 @app.post("/register", response_model=Token)
 def register(user: UserCreate, db: Session = Depends(get_db)):
-    """Регистрация нового пользователя"""
+    """Register a new user"""
     existing_user = db.query(User).filter(User.email == user.email).first()
     if existing_user:
         raise HTTPException(status_code=400, detail="Email already registered")
@@ -70,7 +70,7 @@ def register(user: UserCreate, db: Session = Depends(get_db)):
 
 @app.post("/token", response_model=Token)
 async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
-    """Получение токена доступа"""
+    """Get access token"""
     try:
         # Use email as username
         user = auth.authenticate_user(db, form_data.username, form_data.password)
@@ -90,12 +90,11 @@ async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(
 
 @app.post("/balance", response_model=BalanceUpdate)
 def update_balance(amount: float, db: Session = Depends(get_db), current_user: User = Depends(auth.get_current_user)):
-    """Пополнение баланса текущего пользователя"""
+    """Update current user's balance"""
     try:
         if amount <= 0:
             raise HTTPException(status_code=400, detail="Amount must be positive")
         
-        # Get fresh user instance from the current session
         user = db.query(User).filter(User.email == current_user.email).first()
         if not user:
             raise HTTPException(status_code=404, detail="User not found")
@@ -103,7 +102,6 @@ def update_balance(amount: float, db: Session = Depends(get_db), current_user: U
         user.balance += amount
         db.commit()
         
-        # Сохраняем историю баланса
         balance_history = BalanceHistory(
             user_id=user.id,
             amount=amount,
@@ -130,8 +128,7 @@ def update_balance(amount: float, db: Session = Depends(get_db), current_user: U
 
 @app.get("/balance", response_model=BalanceUpdate)
 def check_balance(db: Session = Depends(get_db), current_user: User = Depends(auth.get_current_user)):
-    """Проверка текущего баланса"""
-    # Get fresh user instance from the current session
+    """Check current balance"""
     user = db.query(User).filter(User.email == current_user.email).first()
     return {
         "amount": 0,
@@ -141,50 +138,41 @@ def check_balance(db: Session = Depends(get_db), current_user: User = Depends(au
 
 @app.post("/generate", response_model=GenerateResponse)
 def generate_content(request: GenerateRequest, db: Session = Depends(get_db), current_user: User = Depends(auth.get_current_user)):
-    """Генерация текстового контента с оплатой за токены"""
+    """Generate text content with token-based payment"""
     start_time = datetime.now()
     
-    # Get fresh user instance from the current session
     user = db.query(User).filter(User.email == current_user.email).first()
     print(f"\n=== Starting generation for user: {user.email} (ID: {user.id}) ===")
     
-    # Проверка корректности тарифа
     cost = Tariff.get_cost(request.tariff)
     if cost == 0:
         raise HTTPException(status_code=400, detail="Invalid tariff type")
     print(f"Using tariff: {request.tariff} with cost: {cost}")
     
-    # Проверка баланса
     if user.balance < cost:
         raise HTTPException(status_code=402, detail="Insufficient funds")
     print(f"Current balance: {user.balance}")
     
-    # Генерация текста
     generated_text = ml_utils.generate_text(request.prompt, request.tariff)
     print(f"Generated text length: {len(generated_text)}")
     
-    # Убедимся, что текст правильно закодирован
     if isinstance(generated_text, bytes):
         generated_text = generated_text.decode('utf-8')
     
     try:
-        # Start a transaction
-        # Списание средств
         user.balance -= cost
         
-        # Сохраняем историю генерации
         generation = Generation(
             user_id=user.id,
             prompt=request.prompt,
             result=generated_text,
             tariff=request.tariff,
             cost=cost,
-            tokens_used=len(generated_text.split()),  # Примерный подсчет токенов
+            tokens_used=len(generated_text.split()),
             processing_time=(datetime.now() - start_time).total_seconds()
         )
         db.add(generation)
         
-        # Сохраняем историю баланса
         balance_history = BalanceHistory(
             user_id=user.id,
             amount=-cost,
@@ -193,9 +181,8 @@ def generate_content(request: GenerateRequest, db: Session = Depends(get_db), cu
         )
         db.add(balance_history)
         
-        # Commit all changes
         db.commit()
-        db.refresh(generation)  # Refresh to get the ID
+        db.refresh(generation)
         db.refresh(user)
         
         print(f"Updated balance: {user.balance}")
@@ -217,10 +204,9 @@ def generate_content(request: GenerateRequest, db: Session = Depends(get_db), cu
 
 @app.get("/analytics", response_model=AnalyticsResponse)
 def get_user_analytics(db: Session = Depends(get_db), current_user: User = Depends(auth.get_current_user)):
-    """Получение аналитики пользователя"""
+    """Get user analytics"""
     user = db.query(User).filter(User.email == current_user.email).first()
     
-    # Статистика генераций
     generations = db.query(Generation).filter(Generation.user_id == user.id).all()
     generations_by_tariff = {}
     total_tokens = 0
@@ -241,7 +227,6 @@ def get_user_analytics(db: Session = Depends(get_db), current_user: User = Depen
         generations_by_tariff=generations_by_tariff
     )
     
-    # Статистика баланса
     balance_history = db.query(BalanceHistory).filter(BalanceHistory.user_id == user.id).all()
     total_spent = sum(h.amount for h in balance_history if h.operation_type == 'spend')
     total_added = sum(h.amount for h in balance_history if h.operation_type == 'add')
@@ -258,7 +243,6 @@ def get_user_analytics(db: Session = Depends(get_db), current_user: User = Depen
         } for h in balance_history]
     )
     
-    # Общая статистика пользователя
     user_stats = UserStats(
         generations=generation_stats,
         balance=balance_stats,
@@ -266,7 +250,6 @@ def get_user_analytics(db: Session = Depends(get_db), current_user: User = Depen
         account_age=(datetime.now() - user.created_at).days
     )
     
-    # Последние генерации
     recent_generations = db.query(Generation)\
         .filter(Generation.user_id == user.id)\
         .order_by(Generation.created_at.desc())\
@@ -281,7 +264,6 @@ def get_user_analytics(db: Session = Depends(get_db), current_user: User = Depen
         'date': g.created_at
     } for g in recent_generations]
     
-    # Последние изменения баланса
     recent_balance_changes = db.query(BalanceHistory)\
         .filter(BalanceHistory.user_id == user.id)\
         .order_by(BalanceHistory.created_at.desc())\
@@ -308,11 +290,10 @@ def get_generation_history(
     db: Session = Depends(get_db),
     current_user: User = Depends(auth.get_current_user)
 ):
-    """Получение истории генераций пользователя с пагинацией"""
+    """Get user generation history with pagination"""
     print(f"\n=== History request for user: {current_user.email} ===")
     print(f"Page: {page}, Page size: {page_size}")
     
-    # Get fresh user instance from the current session
     user = db.query(User).filter(User.email == current_user.email).first()
     if not user:
         print(f"User not found: {current_user.email}")
@@ -320,11 +301,9 @@ def get_generation_history(
     
     print(f"Found user with ID: {user.id}")
     
-    # Calculate total count
     total_count = db.query(Generation).filter(Generation.user_id == user.id).count()
     print(f"Total generations found: {total_count}")
     
-    # Get paginated generations
     generations = (
         db.query(Generation)
         .filter(Generation.user_id == user.id)
@@ -335,7 +314,6 @@ def get_generation_history(
     )
     print(f"Retrieved {len(generations)} generations for page {page}")
     
-    # Print details of each generation
     for gen in generations:
         print(f"\nGeneration ID: {gen.id}")
         print(f"Created at: {gen.created_at}")
@@ -371,11 +349,9 @@ def debug_generations(db: Session = Depends(get_db), current_user: User = Depend
     user = db.query(User).filter(User.email == current_user.email).first()
     print(f"\n=== Debug: Checking generations for user {user.email} ===")
     
-    # Get all generations
     generations = db.query(Generation).filter(Generation.user_id == user.id).all()
     print(f"Found {len(generations)} generations")
     
-    # Print details of each generation
     for gen in generations:
         print(f"\nGeneration ID: {gen.id}")
         print(f"Created at: {gen.created_at}")

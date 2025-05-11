@@ -9,7 +9,7 @@ from .models import User
 from .database import SessionLocal
 from .schemas import Token
 
-# Конфигурация JWT
+# JWT Configuration
 SECRET_KEY = "your-secret-key"
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 30

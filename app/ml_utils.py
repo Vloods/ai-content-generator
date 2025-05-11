@@ -45,7 +45,6 @@ def generate_text(prompt: str, tariff: str) -> str:
             }
         )
         
-        # Убедимся, что ответ правильно закодирован
         if isinstance(response['response'], bytes):
             return response['response'].decode('utf-8')
         return str(response['response'])
