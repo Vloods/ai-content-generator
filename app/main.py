@@ -29,7 +29,8 @@ app = FastAPI(
 @app.middleware("http")
 async def add_encoding_header(request, call_next):
     response = await call_next(request)
-    response.headers["Content-Type"] = "application/json; charset=utf-8"
+    if "text/html" not in response.headers.get("Content-Type", ""):
+        response.headers["Content-Type"] = "application/json; charset=utf-8"
     return response
 
 # Add CORS middleware
